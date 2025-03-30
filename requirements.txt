@@ -1,0 +1,15 @@
+pandas
+selenium
+webdriver-manager
+streamlit
+
+
+
+
+
+
+
+
+
+
+
