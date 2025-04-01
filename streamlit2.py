@@ -234,6 +234,103 @@ smv = scrape_smv()
 
 "--------------///// SBS Pre Publicaciones /////---------------------------------"
 
+import pandas as pd
+import logging
+from selenium import webdriver
+from selenium.webdriver.edge.service import Service as EdgeService
+from selenium.webdriver.edge.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
+from webdriver_manager.microsoft import EdgeChromiumDriverManager
+
+def scrape_sbs_pre():
+    base_url = "https://www.sbs.gob.pe/app/pp/PreProyectos/interno.asp?n="
+    urls = [f"{base_url}{i:02}" for i in range(1, 14) if i not in [5, 7, 8, 9, 10]]
+    sistema_mapping = {
+        "01": "Normas Generales",
+        "02": "Sistema Financiero",
+        "03": "Sistema de Seguros",
+        "04": "Sistema Privado de Pensiones",
+        "06": "Otras entidades",
+        "11": "PLAFT",
+        "12": "COOPAC",
+        "13": "AFOCAT"
+    }
+
+    service = EdgeService(EdgeChromiumDriverManager().install())
+    options = Options()
+    options.headless = True
+    driver = webdriver.Edge(service=service, options=options)
+
+    logging.basicConfig(level=logging.INFO)
+
+    data = {sistema: [] for sistema in sistema_mapping.values()}
+
+    try:
+        for url in urls:
+            try:
+                driver.get(url)
+                logging.info(f"Página web {url} abierta con éxito.")
+
+                WebDriverWait(driver, 30).until(
+                    EC.presence_of_element_located((By.XPATH, '//table/tbody/tr[3]/td[2]/div/a/u/strong'))
+                )
+
+                try:
+                    elemento1 = driver.find_element(By.XPATH, '//table/tbody/tr[3]/td[2]/div/a/u/strong').text.strip()
+                    fecha1 = driver.find_element(By.XPATH, '/html/body/table/tbody/tr/td/div/table/tbody/tr/td/table/tbody/tr[3]/td[2]/div/i').text.strip()
+                except NoSuchElementException:
+                    elemento1, fecha1 = None, None
+
+                try:
+                    elemento2 = driver.find_element(By.XPATH, '//table/tbody/tr[4]/td[2]/div/a/u/strong').text.strip()
+                    fecha2 = driver.find_element(By.XPATH, '/html/body/table/tbody/tr/td/div/table/tbody/tr/td/table/tbody/tr[4]/td[2]/div/i').text.strip()
+                except NoSuchElementException:
+                    elemento2, fecha2 = None, None
+
+                sistema = sistema_mapping[url.split("=")[-1]]
+
+                if elemento1 or elemento2:
+                    if elemento1:
+                        data[sistema].append({'Definición': elemento1, 'Fecha2': fecha1})
+                    if elemento2:
+                        data[sistema].append({'Definición': elemento2, 'Fecha2': fecha2})
+            except (TimeoutException, WebDriverException) as e:
+                logging.warning(f"Error al cargar la página {url}: {e}")
+                continue
+    finally:
+        driver.quit()
+        logging.info("Navegador cerrado.")
+
+    # Crear DataFrames y limpiar datos
+    dataframes = {sistema: pd.DataFrame(info) for sistema, info in data.items() if info}
+
+    for df in dataframes.values():
+        df['Fecha'] = df['Fecha2'].apply(lambda x: x.split('-')[0].strip('()'))
+        df['Fecha2'] = df['Fecha2'].apply(lambda x: x.split('-')[1].strip('()'))
+
+        df['Fecha'] = pd.to_datetime(df['Fecha'], format='%d/%m/%Y').dt.strftime('%d/%m/%Y')
+        df['Fecha2'] = pd.to_datetime(df['Fecha2'], format='%d/%m/%Y').dt.strftime('%d/%m/%Y')
+
+        df['Norma'] = 'Pre publicación SBS'
+
+    return dataframes
+
+dataframes_sbs = scrape_sbs_pre()
+
+# Crear un DataFrame único combinando todos los DataFrames del diccionario
+sbs_pre = pd.concat(dataframes_sbs.values(), ignore_index=True)
+
+# Eliminar la columna "Fecha2" del DataFrame combinado
+sbs_pre.drop(columns=['Fecha2'], inplace=True)
+    
+
+"""
+OSCE - WEB SCRAPING
+"""
+
 def scrape_osce():
     driver = webdriver.Edge()
     driver.get("https://prod2.seace.gob.pe/seacebus-uiwd-pub/buscadorPublico/buscadorPublico.xhtml")
